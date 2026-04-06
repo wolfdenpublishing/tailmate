@@ -50,6 +50,22 @@ firebase.auth().onAuthStateChanged(async (user) => {
   Auth.user = user;
   StorageAdapter.provider = user ? 'firestore' : 'local';
   renderAuth();
+  if (user) {
+    // Reload state from Firestore (handles page refresh / persisted session)
+    const saved = await StorageAdapter.loadState();
+    if (saved) {
+      const merged = { ...state, ...saved };
+      merged.sel = merged.sel || {};
+      ['proteins','carbs','vegetables','fruits','extras'].forEach(k => {
+        if (!merged.sel[k]) merged.sel[k] = {};
+      });
+      replaceState(merged);
+      setPetIdCounter(
+        (merged.pets || []).reduce((m, p) => Math.max(m, p.id || 0), 0) + 1
+      );
+    }
+    applyStateToUI();
+  }
   await renderThemePicker();
 });
 

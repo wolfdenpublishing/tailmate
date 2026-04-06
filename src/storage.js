@@ -16,6 +16,8 @@ function userDoc() {
   return db.collection('users').doc(uid);
 }
 
+let _saveDebounce = null;
+
 export const StorageAdapter = {
   provider: 'local', // 'local' | 'firestore'
 
@@ -37,14 +39,20 @@ export const StorageAdapter = {
   async saveState(s) {
     // Always write to localStorage (synchronous, instant)
     try { localStorage.setItem(K_STATE, JSON.stringify(s)); } catch {}
-    // Additionally write to Firestore when signed in
+    // Debounce Firestore writes — wait for 2s of inactivity before pushing
     if (this.provider === 'firestore') {
-      try {
-        const doc = userDoc();
-        if (doc) await doc.set({ state: s }, { merge: true });
-      } catch (e) {
-        console.warn('[TailMate] Firestore saveState failed', e);
-      }
+      clearTimeout(_saveDebounce);
+      _saveDebounce = setTimeout(() => {
+        try {
+          const doc = userDoc();
+          if (doc) {
+            doc.set({ state: s }, { merge: true })
+              .catch(e => console.warn('[TailMate] Firestore saveState failed', e));
+          }
+        } catch (e) {
+          console.warn('[TailMate] Firestore saveState error', e);
+        }
+      }, 2000);
     }
   },
 
