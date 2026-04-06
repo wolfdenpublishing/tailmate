@@ -213,7 +213,7 @@ Defined in `src/state.js`:
 ```javascript
 export let state = {
   pets: [
-    { id, name, breed, status, age, weight, wunit, balanceitG }
+    { id, name, breed, status, age, weight, wunit, supplement, supplementG }
   ],
   batchDays: 7,
   mealsPerDay: 2,
@@ -293,4 +293,4 @@ Life stage factors are in the `LIFE_STAGE` constant (`src/db.js`). Key values:
 - [x] Modularize into ES modules
 - [x] Add fats/oils as a proper macro category (moved from extras)
 - [x] Package size adjustment (click shopping qty to target a package size)
-- [x] BalanceIT supplement tracking (per-pet g/day in pet card, batch totals in results)
+- [x] Generic supplement tracking (per-pet name + g/day in pet card, batch totals in prep table)

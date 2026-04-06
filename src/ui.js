@@ -164,7 +164,7 @@ export function adjustPackageSize(cat, ingId, ingName, currentPurchaseG) {
 
 // ── PETS ──────────────────────────────────────────────────────
 export function addPet() {
-  state.pets.push({id: nextPetId(), name:'', breed:'', status:'Spayed Female', age:'', weight:'', wunit:'lb', balanceitG:''});
+  state.pets.push({id: nextPetId(), name:'', breed:'', status:'Spayed Female', age:'', weight:'', wunit:'lb', supplement:'', supplementG:''});
   saveState(); renderPets();
 }
 
@@ -218,9 +218,9 @@ export function renderPets() {
           </div>
         </div>
       </div>
-      <div class="field"><label>BalanceIT (g/day)</label>
-        <input type="number" value="${esc(p.balanceitG || '')}" placeholder="e.g. 5.3" step="0.01" min="0" oninput="updatePet(${p.id},'balanceitG',this.value)" style="width:120px">
-        <div style="font-size:.72rem;color:var(--muted);margin-top:2px">~5 g/day typical. Get exact amount from balanceit.com</div>
+      <div class="field-row">
+        <div class="field" style="flex:2"><label>Supplement</label><input type="text" value="${esc(p.supplement || '')}" placeholder="e.g. BalanceIT" oninput="updatePet(${p.id},'supplement',this.value)"></div>
+        <div class="field" style="flex:1"><label>g/day</label><input type="number" value="${esc(p.supplementG || '')}" placeholder="0" step="0.01" min="0" oninput="updatePet(${p.id},'supplementG',this.value)"></div>
       </div>
       <div class="kcal-badge" id="kcal-${p.id}">${kcalText}</div>
       ${LIFE_STAGE[p.status]?.note ? `<div class="ing-warn" style="margin-top:6px">⚠ ${esc(LIFE_STAGE[p.status].note)}</div>` : ''}
@@ -434,6 +434,23 @@ export async function calculate() {
     return {...ex, totalAmt: total};
   }).filter(Boolean);
 
+  // Supplement batch totals — group by supplement name
+  const suppMap = {};
+  petData.forEach(p => {
+    if (p.supplement && p.supplementG && +p.supplementG > 0) {
+      const name = p.supplement.trim();
+      if (!suppMap[name]) suppMap[name] = {name, totalDaily: 0, pets: []};
+      suppMap[name].totalDaily += +p.supplementG;
+      suppMap[name].pets.push(p.name || 'Pet');
+    }
+  });
+  const suppResults = Object.values(suppMap).map(s => ({
+    name: s.name,
+    totalG: s.totalDaily * state.batchDays,
+    dailyG: s.totalDaily,
+    pets: s.pets.join(', ')
+  }));
+
   // Per pet per meal
   const perPet = petData.map(p => {
     const petDailyG = (p.kcal / totalDailyKcal) * actualDailyWeight;
@@ -441,7 +458,7 @@ export async function calculate() {
     return {...p, petDailyG, petMealG};
   });
 
-  renderResults({petData, totalDailyKcal, totalBatchKcal, estimatedBatchWeight, actualBatchWeight, ingResults, extrasResults, perPet});
+  renderResults({petData, totalDailyKcal, totalBatchKcal, estimatedBatchWeight, actualBatchWeight, ingResults, extrasResults, suppResults, perPet});
 
   // Pre-fill recipe name if empty
   const nameInput = $('recipeNameInput');
@@ -499,6 +516,12 @@ function renderResults(d) {
           <td class="muted">${esc(r.prep)}</td>
           <td class="num">${fmtWeight(r.recipeG)}</td>
         </tr>`).join('')}
+        ${d.suppResults.map(s=>`<tr>
+          <td>${esc(s.name)}</td>
+          <td class="muted">Supplement</td>
+          <td class="muted">${esc(s.pets)}</td>
+          <td class="num">${fmtWeight(s.totalG)}</td>
+        </tr>`).join('')}
       </tbody>
     </table>
   </div>`;
@@ -538,32 +561,22 @@ function renderResults(d) {
     </div>`;
   }
 
-  // BalanceIT supplement section
-  const allPetsHaveSupp = d.petData.length > 0 && d.petData.every(p => p.balanceitG && +p.balanceitG > 0);
-  const totalSuppDaily = d.petData.reduce((s, p) => s + (+p.balanceitG || 0), 0);
-  const totalSuppBatch = totalSuppDaily * state.batchDays;
-  const suppClass = allPetsHaveSupp ? 'balanceit confirmed' : 'balanceit';
-
-  html += `<div class="${suppClass}">
-    <h4>💊 BalanceIT Supplement</h4>`;
-  if (allPetsHaveSupp) {
-    html += `<table class="supp-table">
-      <tbody>
-        ${d.petData.map(p => `<tr>
-          <td class="supp-label">${esc(p.name || 'Pet')}</td>
-          <td>${(+p.balanceitG).toFixed(2)} g/day</td>
-          <td>${(+p.balanceitG * state.batchDays).toFixed(2)} g for ${state.batchDays} day(s)</td>
-        </tr>`).join('')}
-        <tr><td class="supp-total" colspan="2">Total batch supplement</td><td class="supp-total">${fmtWeight(totalSuppBatch)}</td></tr>
-      </tbody>
-    </table>
-    <p style="margin-top:8px">Batch kcal: <span class="kcal-highlight">${Math.round(d.totalBatchKcal).toLocaleString()} kcal</span> · <a href="https://www.balanceit.com" target="_blank">balanceit.com</a></p>`;
-  } else {
-    html += `<p>This recipe requires a nutritional supplement to be complete. Visit <a href="https://www.balanceit.com" target="_blank">balanceit.com</a> → <em>Recipe Builder</em> to calculate the exact amount based on your ingredients.<br><br>
-    Your batch kcal total: <span class="kcal-highlight">${Math.round(d.totalBatchKcal).toLocaleString()} kcal</span> — have this ready when using their calculator.<br><br>
-    <strong>Set per-pet supplement amounts in the pet cards above</strong> to see batch totals here.</p>`;
+  // Supplement warning — show if any pet is missing a supplement
+  const allPetsHaveSupp = d.petData.length > 0 && d.petData.every(p => p.supplement && p.supplementG && +p.supplementG > 0);
+  if (!allPetsHaveSupp) {
+    html += `<div class="balanceit">
+      <h4>⚠ Nutritional Supplement Needed</h4>
+      <p>Homemade dog food requires a nutritional supplement for complete and balanced nutrition. Set a supplement name and daily amount for each pet in the pet cards above.</p>
+      <p style="margin-top:8px">Your batch kcal total: <span class="kcal-highlight">${Math.round(d.totalBatchKcal).toLocaleString()} kcal</span> — some supplement calculators need this value.</p>
+      <p style="margin-top:8px;font-size:.78rem">Popular supplement options:
+        <a href="https://www.balanceit.com" target="_blank">Balance IT</a> ·
+        <a href="https://www.justfoodfordogs.com" target="_blank">JustFoodForDogs</a> ·
+        <a href="https://knowbetterpetfood.com" target="_blank">Know Better</a> ·
+        <a href="https://azestfor.com" target="_blank">Azestfor</a> ·
+        <a href="https://www.wholisticpetorganics.com" target="_blank">Wholistic Pet Organics</a><br>
+        <em>TailMate does not endorse any specific supplement. Research the best option for your pets.</em></p>
+    </div>`;
   }
-  html += `</div>`;
 
   body.innerHTML = html;
 
@@ -601,13 +614,16 @@ function renderResults(d) {
         <div class="shop-item-qty">${fmtAmt(ex.totalAmt, ex.unit)}</div>
       </div>`).join('')}
     </div>` : ''}
-    ${allPetsHaveSupp ? `<div class="shop-cat">
-      <div class="shop-cat-title">Supplement</div>
-      <div class="shop-item">
+    ${d.suppResults.length ? `<div class="shop-cat">
+      <div class="shop-cat-title">Supplements</div>
+      ${d.suppResults.map(s=>`<div class="shop-item">
         <input type="checkbox">
-        <div class="shop-item-name" style="flex:1">BalanceIT</div>
-        <div class="shop-item-qty">${fmtWeight(totalSuppBatch)}</div>
-      </div>
+        <div style="flex:1">
+          <div class="shop-item-name">${esc(s.name)}</div>
+          <div class="shop-item-prep">${esc(s.pets)}</div>
+        </div>
+        <div class="shop-item-qty">${fmtWeight(s.totalG)}</div>
+      </div>`).join('')}
     </div>` : ''}`;
   }
 
@@ -648,17 +664,12 @@ export function copyShoppingList() {
     d.extrasResults.forEach(ex => { lines.push(`☐ ${ex.name}`); lines.push(`  ${fmtAmt(ex.totalAmt, ex.unit)}`); });
     lines.push('');
   }
-  lines.push('── SUPPLEMENT ──');
-  const totalSuppCopy = d.petData.reduce((s, p) => s + (+p.balanceitG || 0), 0) * state.batchDays;
-  if (totalSuppCopy > 0) {
-    lines.push(`☐ BalanceIT — ${fmtWeight(totalSuppCopy)}`);
-    d.petData.forEach(p => {
-      if (+p.balanceitG > 0) lines.push(`  ${p.name || 'Pet'}: ${(+p.balanceitG).toFixed(2)} g/day`);
-    });
-  } else {
-    lines.push(`☐ BalanceIT (calculate at balanceit.com)`);
+  if (d.suppResults && d.suppResults.length) {
+    lines.push('── SUPPLEMENTS ──');
+    d.suppResults.forEach(s => { lines.push(`☐ ${s.name} — ${fmtWeight(s.totalG)}`); lines.push(`  (${s.pets})`); });
+    lines.push('');
   }
-  lines.push(`  Total batch kcal: ${Math.round(d.totalBatchKcal).toLocaleString()}`);
+  lines.push(`Total batch kcal: ${Math.round(d.totalBatchKcal).toLocaleString()}`);
   navigator.clipboard.writeText(lines.join('\n')).then(() => {
     const btn = document.querySelector('[onclick="copyShoppingList()"]');
     if (btn) { btn.textContent = '✓ Copied!'; setTimeout(()=>btn.textContent='📋 Copy', 2000); }
