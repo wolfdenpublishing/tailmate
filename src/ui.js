@@ -682,11 +682,15 @@ export async function saveRecipe() {
   const name = nameInput.value.trim();
   if (!name) { nameInput.focus(); await showModal({message:'Please enter a recipe name.'}); return; }
   if (!_lastResults) { await showModal({message:'Calculate a batch first before saving.'}); return; }
+  const existing = (await StorageAdapter.loadRecipes()).find(r => r.name.toLowerCase() === name.toLowerCase());
+  if (existing) {
+    if (!await showModal({title:'Recipe Exists', message:`A recipe named "${esc(name)}" already exists. Overwrite it?`, confirm:true, confirmText:'Overwrite', cancelText:'Cancel'})) return;
+  }
   const now = new Date().toISOString();
   const recipe = {
-    id: crypto.randomUUID(),
+    id: existing ? existing.id : crypto.randomUUID(),
     name,
-    savedAt: now,
+    savedAt: existing ? existing.savedAt : now,
     updatedAt: now,
     state: JSON.parse(JSON.stringify(state)),
     summary: {
