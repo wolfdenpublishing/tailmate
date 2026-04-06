@@ -9,7 +9,7 @@ Read it completely before making any changes.
 
 **TailMate** is a single-page homemade dog food calculator. Users configure their
 dogs' profiles (weight, life stage, etc.), select ingredients across five macro
-categories (proteins, carbohydrates, vegetables, fruits, extras/enticers), and
+categories (proteins, fats/oils, carbohydrates, vegetables, fruits, extras/enticers), and
 receive a complete batch plan: shopping weights, prepped batch weights, per-pet
 per-meal portions, and a BalanceIT supplement callout.
 
@@ -217,9 +217,10 @@ export let state = {
   ],
   batchDays: 7,
   mealsPerDay: 2,
-  macros: { p: 50, c: 25, v: 20, f: 5 },   // must sum to 100
+  macros: { p: 45, fa: 15, c: 20, v: 15, f: 5 },   // must sum to 100
   sel: {
     proteins:   { [id]: { pct, prep } },
+    fats:       { [id]: { pct, prep } },
     carbs:      { [id]: { pct, prep } },
     vegetables: { [id]: { pct, prep } },
     fruits:     { [id]: { pct, prep } },
@@ -239,8 +240,12 @@ replace the state object. Direct reassignment (`state = x`) only works within
 
 ## Ingredient Database
 
-`DB` is exported from `src/db.js` containing five arrays:
-`proteins`, `carbs`, `vegetables`, `fruits`, `extras`.
+`DB` is exported from `src/db.js` containing six arrays:
+`proteins`, `fats`, `carbs`, `vegetables`, `fruits`, `extras`.
+
+Fats/oils are a full macro category with `kcalPerG` and `r` values like other
+macros. Extras (treats & enticers) remain fixed daily amounts per dog and do
+not participate in the macro percentage calculation.
 
 **Do not reorder or renumber ingredient IDs** — saved recipes reference them
 by ID. If adding new ingredients, append to the end of each array with the
@@ -286,3 +291,4 @@ Life stage factors are in the `LIFE_STAGE` constant (`src/db.js`). Key values:
 - [ ] URL-based recipe sharing (encode state as compressed URL param)
 - [x] Firebase Firestore integration (dual-write + sync)
 - [x] Modularize into ES modules
+- [x] Add fats/oils as a proper macro category (moved from extras)

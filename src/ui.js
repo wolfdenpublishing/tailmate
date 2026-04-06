@@ -6,6 +6,42 @@ import { StorageAdapter } from './storage.js';
 // Module-scoped storage for last calculation results
 let _lastResults = null;
 
+// ── MODAL DIALOG ─────────────────────────────────────────────
+function showModal({title, message, confirm = false, confirmText = 'OK', cancelText = 'Cancel'}) {
+  return new Promise(resolve => {
+    let overlay = $('modalOverlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'modalOverlay';
+      overlay.className = 'modal-overlay';
+      document.body.appendChild(overlay);
+    }
+    overlay.innerHTML = `<div class="modal-dialog">
+      ${title ? `<div class="modal-title">${esc(title)}</div>` : ''}
+      <div class="modal-message">${message}</div>
+      <div class="modal-actions">
+        ${confirm ? `<button class="btn btn-secondary" id="modalCancel">${esc(cancelText)}</button>` : ''}
+        <button class="btn btn-primary" id="modalConfirm">${esc(confirmText)}</button>
+      </div>
+    </div>`;
+    overlay.classList.add('open');
+    const keyHandler = (e) => {
+      if (e.key === 'Escape') done(!confirm);
+      if (e.key === 'Enter') done(true);
+    };
+    const done = (result) => {
+      overlay.classList.remove('open');
+      document.removeEventListener('keydown', keyHandler);
+      resolve(result);
+    };
+    $('modalConfirm').onclick = () => done(true);
+    if (confirm) $('modalCancel').onclick = () => done(false);
+    overlay.onclick = (e) => { if (e.target === overlay) done(!confirm); };
+    document.addEventListener('keydown', keyHandler);
+    $('modalConfirm').focus();
+  });
+}
+
 // ── PETS ──────────────────────────────────────────────────────
 export function addPet() {
   state.pets.push({id: nextPetId(), name:'', breed:'', status:'Spayed Female', age:'', weight:'', wunit:'lb'});
@@ -37,12 +73,12 @@ export function renderPets() {
     return;
   }
   const statusOpts = Object.keys(LIFE_STAGE).map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join('');
-  grid.innerHTML = state.pets.map(p => {
+  grid.innerHTML = state.pets.map((p, idx) => {
     const kg = toKg(p.weight, p.wunit);
     const kcalText = kg > 0 ? `<span>${calcMER(kg,p.status).toLocaleString()}</span> kcal/day` : 'Enter weight for kcal';
     return `<div class="pet-card">
       <div class="pet-card-hdr">
-        <span>Pet #${p.id}</span>
+        <span>Pet ${idx + 1}</span>
         <button class="btn btn-danger" onclick="removePet(${p.id})">✕ Remove</button>
       </div>
       <div class="field"><label>Name</label><input type="text" value="${esc(p.name)}" placeholder="e.g. Evie" oninput="updatePet(${p.id},'name',this.value)"></div>
@@ -66,6 +102,16 @@ export function renderPets() {
       ${LIFE_STAGE[p.status]?.note ? `<div class="ing-warn" style="margin-top:6px">⚠ ${esc(LIFE_STAGE[p.status].note)}</div>` : ''}
     </div>`;
   }).join('');
+  // Update header summary
+  const petsHdr = $('pets-summary-hdr');
+  if (petsHdr) {
+    if (state.pets.length === 0) {
+      petsHdr.className = 'cat-total empty'; petsHdr.textContent = '';
+    } else {
+      const names = state.pets.map(p => p.name || 'Unnamed').join(', ');
+      petsHdr.className = 'cat-total ok'; petsHdr.textContent = names;
+    }
+  }
 }
 
 // ── BATCH SETTINGS ─────────────────────────────────────────────
@@ -76,11 +122,12 @@ export function updateBatch() {
 }
 
 export function updateMacro() {
-  state.macros.p = +$('mp').value || 0;
-  state.macros.c = +$('mc').value || 0;
-  state.macros.v = +$('mv').value || 0;
-  state.macros.f = +$('mf').value || 0;
-  const total = state.macros.p + state.macros.c + state.macros.v + state.macros.f;
+  state.macros.p  = +$('mp').value || 0;
+  state.macros.fa = +$('mfa').value || 0;
+  state.macros.c  = +$('mc').value || 0;
+  state.macros.v  = +$('mv').value || 0;
+  state.macros.f  = +$('mf').value || 0;
+  const total = state.macros.p + state.macros.fa + state.macros.c + state.macros.v + state.macros.f;
   const el = $('macroTotal');
   if (total === 100) { el.className='macro-total ok'; el.textContent=`Total: 100% ✓`; }
   else { el.className='macro-total warn'; el.textContent=`Total: ${total}% ⚠ Must equal 100%`; }
@@ -89,13 +136,13 @@ export function updateMacro() {
 
 // ── INGREDIENT RENDERING ───────────────────────────────────────
 const CAT_MAP = {
-  proteins:'protList', carbs:'carbList', vegetables:'vegList', fruits:'fruitList'
+  proteins:'protList', fats:'fatList', carbs:'carbList', vegetables:'vegList', fruits:'fruitList'
 };
 const CAT_TOTAL_MAP = {
-  proteins:'protTotal', carbs:'carbTotal', vegetables:'vegTotal', fruits:'fruitTotal'
+  proteins:'protTotal', fats:'fatTotal', carbs:'carbTotal', vegetables:'vegTotal', fruits:'fruitTotal'
 };
 const CAT_HDR_MAP = {
-  proteins:'prot-total-hdr', carbs:'carb-total-hdr', vegetables:'veg-total-hdr', fruits:'fruit-total-hdr'
+  proteins:'prot-total-hdr', fats:'fat-total-hdr', carbs:'carb-total-hdr', vegetables:'veg-total-hdr', fruits:'fruit-total-hdr'
 };
 
 export function renderIngredients(cat) {
@@ -183,6 +230,18 @@ export function renderExtras() {
       </div>
     </div>`;
   }).join('');
+  updateExtrasTotal();
+}
+
+function updateExtrasTotal() {
+  const hdrEl = $('extras-total-hdr');
+  if (!hdrEl) return;
+  const count = Object.keys(state.sel.extras).length;
+  if (count === 0) {
+    hdrEl.className = 'cat-total empty'; hdrEl.textContent = '';
+  } else {
+    hdrEl.className = 'cat-total ok'; hdrEl.textContent = `${count} selected`;
+  }
 }
 
 export function toggleExtra(id) {
@@ -192,14 +251,14 @@ export function toggleExtra(id) {
 }
 
 // ── CALCULATE ─────────────────────────────────────────────────
-export function calculate() {
+export async function calculate() {
   // Validate pets
   const validPets = state.pets.filter(p => p.weight && +p.weight > 0);
-  if (validPets.length === 0) { alert('Please add at least one pet with a weight to calculate.'); return; }
+  if (validPets.length === 0) { await showModal({title:'Missing Pets', message:'Please add at least one pet with a weight to calculate.'}); return; }
 
   // Check for any selected ingredients
-  const hasAnyIng = ['proteins','carbs','vegetables','fruits'].some(c => Object.keys(state.sel[c]).length > 0);
-  if (!hasAnyIng) { alert('Please select at least one ingredient to calculate.'); return; }
+  const hasAnyIng = ['proteins','fats','carbs','vegetables','fruits'].some(c => Object.keys(state.sel[c]).length > 0);
+  if (!hasAnyIng) { await showModal({title:'No Ingredients', message:'Please select at least one ingredient to calculate.'}); return; }
 
   // Pet kcal
   const petData = validPets.map(p => {
@@ -212,8 +271,8 @@ export function calculate() {
 
   // Recipe kcal density (weighted average across all selected ingredients)
   let recipeKcalPerG = 0;
-  const CATS = ['proteins','carbs','vegetables','fruits'];
-  const MACRO_KEYS = ['p','c','v','f'];
+  const CATS = ['proteins','fats','carbs','vegetables','fruits'];
+  const MACRO_KEYS = ['p','fa','c','v','f'];
   CATS.forEach((cat, ci) => {
     const macroPct = (state.macros[MACRO_KEYS[ci]] || 0) / 100;
     Object.entries(state.sel[cat]).forEach(([id, s]) => {
@@ -223,7 +282,7 @@ export function calculate() {
     });
   });
 
-  if (recipeKcalPerG <= 0) { alert('Unable to calculate — no valid ingredients selected with macro percentages.'); return; }
+  if (recipeKcalPerG <= 0) { await showModal({title:'Cannot Calculate', message:'Unable to calculate — no valid ingredients selected with macro percentages.'}); return; }
 
   const dailyRecipeWeight = totalDailyKcal / recipeKcalPerG;
   const estimatedBatchWeight = dailyRecipeWeight * state.batchDays;
@@ -234,7 +293,7 @@ export function calculate() {
   const ingResults = [];
   CATS.forEach((cat, ci) => {
     const macroPct = (state.macros[MACRO_KEYS[ci]] || 0) / 100;
-    const catLabel = ['Protein','Carbohydrate','Vegetable','Fruit'][ci];
+    const catLabel = ['Protein','Fat','Carbohydrate','Vegetable','Fruit'][ci];
     Object.entries(state.sel[cat]).forEach(([id, s]) => {
       const ing = DB[cat].find(x => x.id === id);
       if (!ing) return;
@@ -259,6 +318,19 @@ export function calculate() {
   });
 
   renderResults({petData, totalDailyKcal, totalBatchKcal, estimatedBatchWeight, actualBatchWeight, ingResults, extrasResults, perPet});
+
+  // Pre-fill recipe name if empty
+  const nameInput = $('recipeNameInput');
+  if (nameInput && !nameInput.value.trim()) {
+    const ingNames = [];
+    ['proteins','fats','carbs','vegetables','fruits'].forEach(cat => {
+      Object.keys(state.sel[cat]).forEach(id => {
+        const ing = DB[cat].find(x => x.id === id);
+        if (ing) ingNames.push(ing.name.replace(/\s*\(.*?\)/g, '').trim());
+      });
+    });
+    if (ingNames.length > 0) nameInput.value = ingNames.join(', ');
+  }
 }
 
 function renderResults(d) {
@@ -289,41 +361,6 @@ function renderResults(d) {
       </div>
       <div style="font-size:.75rem;color:var(--muted);margin-top:3px">${state.actualBatchWeight ? `(${(state.actualBatchWeight/453.592).toFixed(2)} lb)` : 'Leave blank to use estimated weight'}</div>
     </div>
-  </div>`;
-
-  // Shopping list
-  const catOrder = ['Protein','Carbohydrate','Vegetable','Fruit'];
-  const grouped = {};
-  d.ingResults.forEach(r => {
-    if (!grouped[r.catLabel]) grouped[r.catLabel] = [];
-    grouped[r.catLabel].push(r);
-  });
-
-  html += `<div class="result-section">
-    <h3>🛒 Shopping List <button class="btn btn-secondary btn-sm" onclick="copyShoppingList()">📋 Copy</button></h3>
-    ${catOrder.filter(c=>grouped[c]).map(c=>`
-      <div class="shop-cat">
-        <div class="shop-cat-title">${c}s</div>
-        ${grouped[c].map(r=>`<div class="shop-item">
-          <input type="checkbox">
-          <div style="flex:1">
-            <div class="shop-item-name">${esc(r.name)}</div>
-            <div class="shop-item-prep">${esc(r.prep)}</div>
-          </div>
-          <div>
-            <div class="shop-item-qty">${fmtWeight(r.purchaseG)}</div>
-            <div style="font-size:.72rem;color:var(--muted);text-align:right">${r.purchaseRatio < 1 ? 'dry / uncooked' : r.purchaseRatio > 1.05 ? 'raw purchase qty' : 'as used'}</div>
-          </div>
-        </div>`).join('')}
-      </div>`).join('')}
-    ${d.extrasResults.length ? `<div class="shop-cat">
-      <div class="shop-cat-title">Extras &amp; Enticers</div>
-      ${d.extrasResults.map(ex=>`<div class="shop-item">
-        <input type="checkbox">
-        <div class="shop-item-name" style="flex:1">${esc(ex.name)}</div>
-        <div class="shop-item-qty">${fmtAmt(ex.totalAmt, ex.unit)}</div>
-      </div>`).join('')}
-    </div>` : ''}
   </div>`;
 
   // Batch prep table
@@ -386,6 +423,42 @@ function renderResults(d) {
 
   body.innerHTML = html;
 
+  // Shopping list (separate panel)
+  const shoppingPanel = $('shoppingPanel');
+  const shoppingBody = $('shoppingBody');
+  if (shoppingPanel && shoppingBody) {
+    shoppingPanel.classList.remove('result-hidden');
+    const catOrder = ['Protein','Fat','Carbohydrate','Vegetable','Fruit'];
+    const grouped = {};
+    d.ingResults.forEach(r => {
+      if (!grouped[r.catLabel]) grouped[r.catLabel] = [];
+      grouped[r.catLabel].push(r);
+    });
+    shoppingBody.innerHTML = `${catOrder.filter(c=>grouped[c]).map(c=>`
+      <div class="shop-cat">
+        <div class="shop-cat-title">${c}s</div>
+        ${grouped[c].map(r=>`<div class="shop-item">
+          <input type="checkbox">
+          <div style="flex:1">
+            <div class="shop-item-name">${esc(r.name)}</div>
+            <div class="shop-item-prep">${esc(r.prep)}</div>
+          </div>
+          <div>
+            <div class="shop-item-qty">${fmtWeight(r.purchaseG)}</div>
+            <div style="font-size:.72rem;color:var(--muted);text-align:right">${r.purchaseRatio < 1 ? 'dry / uncooked' : r.purchaseRatio > 1.05 ? 'raw purchase qty' : 'as used'}</div>
+          </div>
+        </div>`).join('')}
+      </div>`).join('')}
+    ${d.extrasResults.length ? `<div class="shop-cat">
+      <div class="shop-cat-title">Extras &amp; Enticers</div>
+      ${d.extrasResults.map(ex=>`<div class="shop-item">
+        <input type="checkbox">
+        <div class="shop-item-name" style="flex:1">${esc(ex.name)}</div>
+        <div class="shop-item-qty">${fmtAmt(ex.totalAmt, ex.unit)}</div>
+      </div>`).join('')}
+    </div>` : ''}`;
+  }
+
   // Store for re-render
   _lastResults = d;
 }
@@ -410,7 +483,7 @@ export function copyShoppingList() {
   if (!_lastResults) return;
   const d = _lastResults;
   const lines = ['TAILMATE — SHOPPING LIST', `Generated: ${new Date().toLocaleDateString()}`, `Batch: ${state.batchDays} days for ${d.petData.length} dog(s)`, ''];
-  const catOrder = ['Protein','Carbohydrate','Vegetable','Fruit'];
+  const catOrder = ['Protein','Fat','Carbohydrate','Vegetable','Fruit'];
   const grouped = {};
   d.ingResults.forEach(r => { if (!grouped[r.catLabel]) grouped[r.catLabel]=[]; grouped[r.catLabel].push(r); });
   catOrder.filter(c=>grouped[c]).forEach(c => {
@@ -436,8 +509,8 @@ export function copyShoppingList() {
 export async function saveRecipe() {
   const nameInput = $('recipeNameInput');
   const name = nameInput.value.trim();
-  if (!name) { nameInput.focus(); alert('Please enter a recipe name.'); return; }
-  if (!_lastResults) { alert('Calculate a batch first before saving.'); return; }
+  if (!name) { nameInput.focus(); await showModal({message:'Please enter a recipe name.'}); return; }
+  if (!_lastResults) { await showModal({message:'Calculate a batch first before saving.'}); return; }
   const now = new Date().toISOString();
   const recipe = {
     id: crypto.randomUUID(),
@@ -460,7 +533,7 @@ export async function loadRecipe(id) {
   const recipes = await StorageAdapter.loadRecipes();
   const r = recipes.find(x => x.id === id);
   if (!r) return;
-  if (!confirm(`Load recipe "${r.name}"? This will replace your current settings.`)) return;
+  if (!await showModal({title:'Load Recipe', message:`Load recipe "${esc(r.name)}"? This will replace your current settings.`, confirm:true, confirmText:'Load'})) return;
   replaceState(r.state);
   setPetIdCounter(state.pets.reduce((max,p) => Math.max(max, p.id||0), 0) + 1);
   applyStateToUI();
@@ -470,7 +543,8 @@ export async function loadRecipe(id) {
 export async function deleteRecipe(id) {
   const recipes = await StorageAdapter.loadRecipes();
   const r = recipes.find(x => x.id === id);
-  if (!r || !confirm(`Delete recipe "${r.name}"?`)) return;
+  if (!r) return;
+  if (!await showModal({title:'Delete Recipe', message:`Delete recipe "${esc(r.name)}"?`, confirm:true, confirmText:'Delete', cancelText:'Keep'})) return;
   await StorageAdapter.deleteRecipe(id);
   await loadRecipesList();
 }
@@ -492,17 +566,51 @@ export async function loadRecipesList() {
     </div>`).join('')}</div>`;
 }
 
+// ── RESET ────────────────────────────────────────────────────
+export function resetIngredients() {
+  state.sel = { proteins: {}, fats: {}, carbs: {}, vegetables: {}, fruits: {}, extras: {} };
+  saveState();
+  ['proteins','fats','carbs','vegetables','fruits'].forEach(renderIngredients);
+  renderExtras();
+}
+
+export function resetBatchSettings() {
+  state.batchDays = 7;
+  state.mealsPerDay = 2;
+  state.macros = {p:45, fa:15, c:20, v:15, f:5};
+  $('batchDays').value = 7;
+  $('mealsPerDay').value = 2;
+  $('mp').value = 45;
+  $('mfa').value = 15;
+  $('mc').value = 20;
+  $('mv').value = 15;
+  $('mf').value = 5;
+  updateMacro();
+}
+
 // ── STATE → UI ─────────────────────────────────────────────────
 export function applyStateToUI() {
   $('batchDays').value = state.batchDays;
   $('mealsPerDay').value = state.mealsPerDay;
   $('mp').value = state.macros.p;
+  $('mfa').value = state.macros.fa || 0;
   $('mc').value = state.macros.c;
   $('mv').value = state.macros.v;
   $('mf').value = state.macros.f;
   updateMacro();
   renderPets();
-  ['proteins','carbs','vegetables','fruits'].forEach(renderIngredients);
+  // Default pets panel: closed if pets exist, open if empty
+  const petsHdr = $('petsBody')?.previousElementSibling;
+  if (petsHdr) {
+    if (state.pets.length > 0) {
+      petsHdr.classList.remove('open');
+      $('petsBody').classList.add('hidden');
+    } else {
+      petsHdr.classList.add('open');
+      $('petsBody').classList.remove('hidden');
+    }
+  }
+  ['proteins','fats','carbs','vegetables','fruits'].forEach(renderIngredients);
   renderExtras();
   loadRecipesList();
 }

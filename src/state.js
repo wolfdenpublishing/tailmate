@@ -7,9 +7,10 @@ export let state = {
   pets: [],
   batchDays: 7,
   mealsPerDay: 2,
-  macros: {p:50, c:25, v:20, f:5},
+  macros: {p:45, fa:15, c:20, v:15, f:5},
   sel: {
     proteins:    {},  // {[id]: {pct:number, prep:string}}
+    fats:        {},
     carbs:       {},
     vegetables:  {},
     fruits:      {},

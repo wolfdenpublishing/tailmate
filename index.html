@@ -155,6 +155,14 @@ input:focus,select:focus{outline:none;border-color:var(--accent2)}
 .theme-menu-item:hover{background:var(--panel-alt,#f5f5f5)}
 .theme-menu-item .tm-swatch{width:14px;height:14px;border-radius:50%;flex-shrink:0;border:1px solid rgba(0,0,0,.1)}
 .theme-menu-item.active{font-weight:700;background:var(--panel-alt,#f0f4f8)}
+/* MODAL */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1000;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal-dialog{background:var(--panel);border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.25);padding:24px;max-width:420px;width:90%;animation:modalIn .15s ease}
+@keyframes modalIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+.modal-title{font-family:'Lora',serif;font-size:1.05rem;font-weight:700;color:var(--accent);margin-bottom:8px}
+.modal-message{font-size:.9rem;color:var(--text);line-height:1.5;margin-bottom:20px}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end}
 </style>
 <!-- Firebase SDK (compat — no bundler needed) -->
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
@@ -191,7 +199,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent2)}
   <div class="panel">
     <div class="phdr open" onclick="togglePanel(this)">
       <h2>🐾 Your Pets</h2>
-      <span class="chevron">▼</span>
+      <div class="phdr-right"><span id="pets-summary-hdr" class="cat-total empty" style="margin:0"></span><span class="chevron">▼</span></div>
     </div>
     <div class="pbody" id="petsBody">
       <div class="pets-grid" id="petsGrid"></div>
@@ -223,15 +231,19 @@ input:focus,select:focus{outline:none;border-color:var(--accent2)}
       <div class="macro-grid" id="macroGrid">
         <div>
           <div class="macro-label">Protein %</div>
-          <div class="pct-wrap"><input type="number" id="mp" min="0" max="100" value="50" oninput="updateMacro()"></div>
+          <div class="pct-wrap"><input type="number" id="mp" min="0" max="100" value="45" oninput="updateMacro()"></div>
+        </div>
+        <div>
+          <div class="macro-label">Fats %</div>
+          <div class="pct-wrap"><input type="number" id="mfa" min="0" max="100" value="15" oninput="updateMacro()"></div>
         </div>
         <div>
           <div class="macro-label">Carbohydrate %</div>
-          <div class="pct-wrap"><input type="number" id="mc" min="0" max="100" value="25" oninput="updateMacro()"></div>
+          <div class="pct-wrap"><input type="number" id="mc" min="0" max="100" value="20" oninput="updateMacro()"></div>
         </div>
         <div>
           <div class="macro-label">Vegetable %</div>
-          <div class="pct-wrap"><input type="number" id="mv" min="0" max="100" value="20" oninput="updateMacro()"></div>
+          <div class="pct-wrap"><input type="number" id="mv" min="0" max="100" value="15" oninput="updateMacro()"></div>
         </div>
         <div>
           <div class="macro-label">Fruit %</div>
@@ -252,6 +264,19 @@ input:focus,select:focus{outline:none;border-color:var(--accent2)}
       <div class="section-hint">Select one or more proteins. Percentages within this category must sum to 100%.</div>
       <div class="ing-list" id="protList"></div>
       <div id="protTotal" class="cat-total empty" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <!-- FATS & OILS -->
+  <div class="panel">
+    <div class="phdr" onclick="togglePanel(this)">
+      <h2>🫒 Fats &amp; Oils</h2>
+      <div class="phdr-right"><span id="fat-total-hdr" class="cat-total empty" style="margin:0"></span><span class="chevron">▼</span></div>
+    </div>
+    <div class="pbody hidden" id="fatBody">
+      <div class="section-hint">Select one or more fats/oils. Percentages within this category must sum to 100%.</div>
+      <div class="ing-list" id="fatList"></div>
+      <div id="fatTotal" class="cat-total empty" style="margin-top:10px"></div>
     </div>
   </div>
 
@@ -298,7 +323,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent2)}
   <div class="panel">
     <div class="phdr" onclick="togglePanel(this)">
       <h2>✨ Treats &amp; Enticers</h2>
-      <span class="chevron">▼</span>
+      <div class="phdr-right"><span id="extras-total-hdr" class="cat-total empty" style="margin:0"></span><span class="chevron">▼</span></div>
     </div>
     <div class="pbody hidden" id="extrasBody">
       <div class="section-hint">Fixed daily amounts per dog, added on top of the main recipe. These do not affect macro percentages.</div>
@@ -306,8 +331,12 @@ input:focus,select:focus{outline:none;border-color:var(--accent2)}
     </div>
   </div>
 
-  <!-- CALCULATE -->
-  <button class="btn btn-primary btn-lg" onclick="calculate()">⚖️ Calculate Batch</button>
+  <!-- ACTION BUTTONS -->
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <button class="btn btn-primary btn-lg" style="flex:1;min-width:200px" onclick="calculate()">⚖️ Calculate Batch</button>
+    <button class="btn btn-secondary" onclick="resetIngredients()">Reset Ingredients</button>
+    <button class="btn btn-secondary" onclick="resetBatchSettings()">Reset Settings</button>
+  </div>
 
   <!-- RESULTS -->
   <div class="panel result-hidden" id="resultsPanel">
@@ -316,6 +345,15 @@ input:focus,select:focus{outline:none;border-color:var(--accent2)}
       <span class="chevron">▼</span>
     </div>
     <div class="pbody" id="resultsBody"></div>
+  </div>
+
+  <!-- SHOPPING LIST -->
+  <div class="panel result-hidden" id="shoppingPanel">
+    <div class="phdr open" onclick="togglePanel(this)">
+      <h2>🛒 Shopping List</h2>
+      <div class="phdr-right"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();copyShoppingList()" style="margin-right:6px">📋 Copy</button><span class="chevron">▼</span></div>
+    </div>
+    <div class="pbody" id="shoppingBody"></div>
   </div>
 
   <!-- MY RECIPES -->

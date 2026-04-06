@@ -17,6 +17,7 @@ import {
   calculate, updateActualWeight,
   copyShoppingList,
   saveRecipe, loadRecipe, deleteRecipe, loadRecipesList,
+  resetIngredients, resetBatchSettings,
   applyStateToUI,
 } from './ui.js';
 
@@ -43,6 +44,8 @@ window.deleteRecipe    = deleteRecipe;
 window.handleAuth      = handleAuth;
 window.applyTheme      = applyTheme;
 window.toggleThemeDropdown = toggleThemeDropdown;
+window.resetIngredients   = resetIngredients;
+window.resetBatchSettings = resetBatchSettings;
 
 // ── AUTH STATE LISTENER ──────────────────────────────────────
 /* global firebase */
@@ -56,7 +59,7 @@ firebase.auth().onAuthStateChanged(async (user) => {
     if (saved) {
       const merged = { ...state, ...saved };
       merged.sel = merged.sel || {};
-      ['proteins','carbs','vegetables','fruits','extras'].forEach(k => {
+      ['proteins','fats','carbs','vegetables','fruits','extras'].forEach(k => {
         if (!merged.sel[k]) merged.sel[k] = {};
       });
       replaceState(merged);
@@ -76,7 +79,7 @@ firebase.auth().onAuthStateChanged(async (user) => {
     try {
       const merged = { ...state, ...saved };
       merged.sel = merged.sel || {};
-      ['proteins','carbs','vegetables','fruits','extras'].forEach(k => {
+      ['proteins','fats','carbs','vegetables','fruits','extras'].forEach(k => {
         if (!merged.sel[k]) merged.sel[k] = {};
       });
       replaceState(merged);
