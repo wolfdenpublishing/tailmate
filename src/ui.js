@@ -789,4 +789,32 @@ export function applyStateToUI() {
   ['proteins','fats','carbs','vegetables','fruits'].forEach(renderIngredients);
   renderExtras();
   loadRecipesList();
+  checkDisclaimer();
+}
+
+// ── DISCLAIMER ──────────────────────────────────────────────
+const DISCLAIMER_KEY = 'tailmate_disclaimer_agreed';
+const DISCLAIMER_DAYS = 30;
+
+export function checkDisclaimer() {
+  const agreed = localStorage.getItem(DISCLAIMER_KEY);
+  const valid = agreed && (Date.now() - new Date(agreed).getTime()) < DISCLAIMER_DAYS * 86400000;
+  const panel = $('disclaimerPanel');
+  const btn = $('calcBtn');
+  if (valid) {
+    if (panel) panel.style.display = 'none';
+    if (btn) btn.disabled = false;
+  } else {
+    if (panel) panel.style.display = '';
+    if (btn) btn.disabled = true;
+  }
+}
+
+export function acceptDisclaimer() {
+  const checked = $('disclaimerCheck')?.checked;
+  if (checked) {
+    localStorage.setItem(DISCLAIMER_KEY, new Date().toISOString());
+    if ($('disclaimerPanel')) $('disclaimerPanel').style.display = 'none';
+    if ($('calcBtn')) $('calcBtn').disabled = false;
+  }
 }

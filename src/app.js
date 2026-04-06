@@ -20,6 +20,7 @@ import {
   saveRecipe, loadRecipe, deleteRecipe, loadRecipesList,
   resetIngredients, resetBatchSettings,
   adjustPackageSize,
+  acceptDisclaimer,
   applyStateToUI,
 } from './ui.js';
 
@@ -50,6 +51,7 @@ window.toggleThemeDropdown = toggleThemeDropdown;
 window.resetIngredients   = resetIngredients;
 window.resetBatchSettings = resetBatchSettings;
 window.adjustPackageSize  = adjustPackageSize;
+window.acceptDisclaimer   = acceptDisclaimer;
 window.shareRecipe        = shareRecipe;
 window.shareRecipeById    = shareRecipeById;
 
