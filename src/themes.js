@@ -121,7 +121,7 @@ export async function renderThemePicker() {
   const picker = document.getElementById('themePicker');
   if (!picker) return;
   picker.className = 'theme-dropdown';
-  picker.innerHTML = `<button class="theme-trigger" id="themeTrigger" onclick="toggleThemeDropdown(event)"></button>
+  picker.innerHTML = `<button class="theme-trigger" id="themeTrigger" onclick="toggleThemeDropdown(event)" title="Change theme">🎨</button>
     <div class="theme-menu" id="themeMenu">
       ${Object.entries(THEMES).map(([id, t]) =>
         `<div class="theme-menu-item" data-theme="${id}" onclick="applyTheme('${id}')">
