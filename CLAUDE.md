@@ -14,9 +14,9 @@ receive a complete batch plan: shopping weights, prepped batch weights, per-pet
 per-meal portions, and a BalanceIT supplement callout.
 
 - **Live URL:** GitHub Pages (see repo settings)
-- **Entry point:** `index.html` — the entire app is one self-contained HTML file
-- **No build step, no framework, no dependencies** — vanilla HTML/CSS/JS only
-- **Google Fonts** (Lora + Nunito) loaded from CDN — the only external resource
+- **Entry point:** `index.html` loads `src/app.js` as an ES module
+- **No build step, no framework** — vanilla HTML/CSS/JS with native ES modules
+- **External resources:** Google Fonts (Lora + Nunito) CDN, Firebase SDK (compat)
 
 ---
 
@@ -24,17 +24,38 @@ per-meal portions, and a BalanceIT supplement callout.
 
 ```
 /
-├── index.html          ← The entire application
+├── index.html          ← HTML + CSS only (no inline JS)
+├── src/
+│   ├── app.js          ← Entry point: init, window.* globals, auth listener
+│   ├── db.js           ← Ingredient database (DB, LIFE_STAGE constants)
+│   ├── state.js        ← Application state, helpers, saveState wrapper
+│   ├── storage.js      ← StorageAdapter (async, dual-write localStorage + Firestore)
+│   ├── auth.js         ← Firebase Auth (Google sign-in), renderAuth
+│   ├── themes.js       ← 11 color themes, applyTheme, renderThemePicker
+│   └── ui.js           ← All rendering + event handlers (~500 lines)
 ├── CLAUDE.md           ← This file
 ├── README.md
 ├── LICENSE
 └── .gitignore
 ```
 
-The app is intentionally kept as a single file for simplicity and GitHub Pages
-compatibility. If the project grows significantly, consider splitting into
-`/src/db.js`, `/src/state.js`, etc. — but do not do this without explicit
-instruction, as it would require a build step or module bundler.
+### Module Dependency Graph (DAG, no cycles)
+
+```
+db.js ←── state.js ←── ui.js ←── app.js
+              ↑           ↑         ↑
+storage.js ───┘           │         │
+              ↑           │         │
+auth.js ──────┴───────────┘         │
+themes.js (imports storage.js) ─────┘
+```
+
+### onclick Handlers
+
+Since ES module exports are not globals, all functions referenced by `onclick`
+attributes in HTML templates are registered on `window.*` in `app.js`. There are
+18 such registrations. When adding new onclick-callable functions, add a
+`window.functionName = functionName` line in `app.js`.
 
 ---
 
@@ -43,199 +64,114 @@ instruction, as it would require a build step or module bundler.
 **This is the most important architectural rule in the project.**
 
 All storage I/O — reading and writing state, recipes, and user preferences —
-MUST go through the `StorageAdapter` module. Nothing in the app calls
-`localStorage` directly except inside `StorageAdapter`.
+MUST go through the `StorageAdapter` module in `src/storage.js`. Nothing in the
+app calls `localStorage` directly except inside `StorageAdapter` (and theme
+storage in `themes.js`, which is separate by design).
 
 ```javascript
-const StorageAdapter = {
-  provider: 'local', // 'local' | 'firestore' (when Firebase is added)
-  loadState()    { ... }
-  saveState(s)   { ... }
-  loadRecipes()  { ... }
-  saveRecipe(r)  { ... }
-  deleteRecipe(id) { ... }
-  migrateLocalToFirestore(uid) { ... }
+// src/storage.js
+export const StorageAdapter = {
+  provider: 'local', // 'local' | 'firestore'
+  async loadState()           { ... }
+  async saveState(s)          { ... }
+  async loadRecipes()         { ... }
+  async saveRecipe(r)         { ... }
+  async deleteRecipe(id)      { ... }
+  async syncRecipes(uid)      { ... }   // last-write-wins merge
 };
 ```
 
-Every method that needs a Firestore equivalent is marked with a comment:
+**All methods are async** and return Promises, regardless of provider. Callers
+use `await` for reads (loadState, loadRecipes) and fire-and-forget for writes
+(saveState is called from the synchronous `saveState()` wrapper in `state.js`
+without awaiting — the localStorage write is synchronous and happens first).
 
-```javascript
-// FIRESTORE HOOK: <exact Firestore call goes here>
-localStorage.setItem(KEY, JSON.stringify(data));
-```
+### Dual-Write Strategy
 
-**When adding Firebase:** replace the localStorage line with the Firestore call.
-Do not change any call sites elsewhere in the app — they all go through
-StorageAdapter and will work automatically.
+When `provider === 'firestore'`:
+- **Writes** go to BOTH localStorage (sync, instant) AND Firestore (async)
+- **Reads** try Firestore first, fall back to localStorage on error
+- Every Firestore call is wrapped in try/catch — failures log warnings, never crash
+
+When `provider === 'local'`:
+- Behavior is identical to pure localStorage, just wrapped in async
 
 ---
 
 ## Architecture: Auth Module
 
-The `Auth` module is currently stubbed. It exposes the correct interface for
-the rest of the app but does nothing real yet.
+The `Auth` module in `src/auth.js` handles Google sign-in via Firebase.
 
 ```javascript
-const Auth = {
+export const Auth = {
   user: null,
-  isLoggedIn()  { return !!this.user; },
-  async signIn() { /* FIREBASE HOOK */ },
-  async signOut() { /* FIREBASE HOOK */ },
+  isLoggedIn()    { return !!this.user; },
+  async signIn()  { /* Firebase popup, sync recipes, reload state */ },
+  async signOut() { /* Firebase sign-out, revert to local */ },
 };
 ```
 
-The "Sign in with Google" button in the header calls `Auth.signIn()`, which
-currently shows an alert explaining the feature is coming. The `renderAuth()`
-function updates the header UI based on `Auth.isLoggedIn()`.
+- `signIn()` uses `signInWithPopup` with `GoogleAuthProvider`
+- On sign-in: sets `StorageAdapter.provider = 'firestore'`, runs `syncRecipes()`,
+  reloads state from Firestore, refreshes UI
+- On sign-out: reverts to `'local'` provider; data remains in localStorage
+- `onAuthStateChanged` listener in `app.js` handles page refresh (session persistence)
+
+### Circular Dependency Resolution
+
+`auth.js` needs `applyStateToUI` from `ui.js`, but `ui.js` imports from
+`state.js` which imports from `storage.js` — creating a potential cycle.
+This is resolved with a setter: `auth.js` exports `setApplyStateToUI(fn)`,
+and `app.js` wires it up after importing both modules.
 
 ---
 
-## Adding Firebase Firestore (Next Major Task)
+## Recipe Sync (Last-Write-Wins)
 
-### Overview
+Recipes have a UUID (`crypto.randomUUID()`) and `updatedAt` timestamp.
+On sign-in, `StorageAdapter.syncRecipes(uid)` merges local and remote recipes:
 
-The goal is optional Google authentication. If the user is not logged in,
-the app uses localStorage exactly as it does today. If the user logs in,
-data syncs to Firestore per-user. Logging out reverts to localStorage.
+1. Load local recipes from localStorage
+2. Load remote recipes from Firestore
+3. For each unique ID:
+   - Only local → upload to Firestore
+   - Only remote → download to localStorage
+   - Both → keep the one with newer `updatedAt`
+4. Write merged set to both stores
+
+This lets users sign out, create recipes offline, sign back in, and have
+everything sync properly.
+
+---
+
+## Firebase Configuration
+
+Firebase SDK scripts (compat, v10.14.1) are loaded in `<head>` of `index.html`.
+The config block uses placeholder values — replace with real Firebase project values:
+
+```javascript
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_AUTH_DOMAIN",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_STORAGE_BUCKET",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+```
 
 ### Firestore Data Structure
 
 ```
 /users/{uid}/
-  state          ← Current working session (pets, selections, macros, etc.)
-  prefs          ← User preferences (theme choice, etc.)
+  state          ← full app state object
+  theme          ← theme ID string
   recipes/
-    {recipeId}   ← Each saved recipe as a document
+    {recipeId}   ← individual recipe documents (UUID + updatedAt)
 ```
 
-### Step-by-Step Implementation Plan
+### Firestore Security Rules
 
-**1. Create a Firebase project**
-- Go to console.firebase.google.com
-- Create a new project, enable Google Auth and Firestore
-- Copy the Firebase config object
-
-**2. Add Firebase SDK to index.html**
-Add these script tags in `<head>` before the closing `</head>`:
-```html
-<script src="https://www.gstatic.com/firebasejs/10.x.x/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.x.x/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.x.x/firebase-firestore-compat.js"></script>
-```
-
-**3. Add Firebase config and initialization**
-Add this just after the SDK scripts (replace with real values from Firebase console):
-```javascript
-const firebaseConfig = {
-  apiKey: "...",
-  authDomain: "...",
-  projectId: "...",
-  storageBucket: "...",
-  messagingSenderId: "...",
-  appId: "..."
-};
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-```
-
-**4. Implement Auth.signIn() and signOut()**
-Find the `Auth` object and replace the stubs:
-```javascript
-async signIn() {
-  const provider = new firebase.auth.GoogleAuthProvider();
-  const result = await firebase.auth().signInWithPopup(provider);
-  this.user = result.user;
-  StorageAdapter.provider = 'firestore';
-  await StorageAdapter.migrateLocalToFirestore(this.user.uid);
-  renderAuth();
-  await loadAndSyncState();
-},
-async signOut() {
-  await firebase.auth().signOut();
-  this.user = null;
-  StorageAdapter.provider = 'local';
-  renderAuth();
-},
-```
-
-Also add an auth state listener in `init()`:
-```javascript
-firebase.auth().onAuthStateChanged(user => {
-  Auth.user = user;
-  if (user) StorageAdapter.provider = 'firestore';
-  renderAuth();
-  renderThemePicker();
-});
-```
-
-**5. Implement StorageAdapter Firestore methods**
-Find each `// FIRESTORE HOOK:` comment. The line immediately below it is
-the localStorage call to replace. Example:
-
-```javascript
-// FIRESTORE HOOK: return await db.collection('users').doc(Auth.uid()).get() ...
-localStorage.getItem(K_STATE)
-// becomes:
-const snap = await db.collection('users').doc(Auth.user.uid).get();
-return snap.exists ? snap.data().state : null;
-```
-
-Full replacements for each method:
-
-**loadState:**
-```javascript
-const snap = await db.collection('users').doc(Auth.user.uid).get();
-return snap.exists ? snap.data().state : null;
-```
-
-**saveState:**
-```javascript
-await db.collection('users').doc(Auth.user.uid).set({ state: s }, { merge: true });
-```
-
-**loadRecipes:**
-```javascript
-const snap = await db.collection('users').doc(Auth.user.uid)
-  .collection('recipes').orderBy('savedAt', 'desc').get();
-return snap.docs.map(d => d.data());
-```
-
-**saveRecipe:**
-```javascript
-await db.collection('users').doc(Auth.user.uid)
-  .collection('recipes').doc(r.id).set(r);
-```
-
-**deleteRecipe:**
-```javascript
-await db.collection('users').doc(Auth.user.uid)
-  .collection('recipes').doc(id).delete();
-```
-
-**migrateLocalToFirestore:**
-```javascript
-const localState = JSON.parse(localStorage.getItem('tailmate_state_v1'));
-const localRecipes = JSON.parse(localStorage.getItem('tailmate_recipes_v1')) || [];
-if (localState) {
-  await db.collection('users').doc(uid).set({ state: localState }, { merge: true });
-}
-for (const r of localRecipes) {
-  await db.collection('users').doc(uid).collection('recipes').doc(r.id).set(r);
-}
-// Optionally clear localStorage after migration
-```
-
-**6. Theme preference in Firestore**
-The theme save/load also has `FIRESTORE HOOK` comments. Replace:
-```javascript
-// Save: await db.collection('users').doc(Auth.user.uid).set({ theme: id }, { merge: true });
-// Load: const snap = await db.collection('users').doc(Auth.user.uid).get();
-//        return snap.data()?.theme || DEFAULT_THEME;
-```
-
-**7. Firestore Security Rules**
-In the Firebase console, set these rules:
 ```
 rules_version = '2';
 service cloud.firestore {
@@ -246,24 +182,13 @@ service cloud.firestore {
   }
 }
 ```
-This ensures each user can only access their own data.
 
 ---
 
 ## Theme System
 
 TailMate has 11 color themes selectable via dot swatches in the header.
-The active theme is applied by setting CSS custom properties on `:root`.
-
-```javascript
-const THEMES = {
-  'stormy-morning': { label, swatch, vars: { '--accent', '--amber', ... } },
-  // ... 10 more themes
-};
-
-function applyTheme(id) { /* sets CSS vars, saves preference */ }
-function renderThemePicker() { /* renders swatch dots in header */ }
-```
+Defined in `src/themes.js`.
 
 **Default theme:** `stormy-morning`
 
@@ -276,15 +201,19 @@ CSS variables controlled per-theme:
 Fixed (not theme-controlled):
 `--panel` (#fff), `--ok` (green), `--danger` (red), `--warn-bg`, `--warn-bdr`
 
+Theme storage: saved to localStorage always (instant), and to Firestore when
+signed in (fire-and-forget). Loaded from Firestore first when signed in.
+
 ---
 
 ## Application State
 
+Defined in `src/state.js`:
+
 ```javascript
-let state = {
+export let state = {
   pets: [
     { id, name, breed, status, age, weight, wunit }
-    // status options: see LIFE_STAGE keys
   ],
   batchDays: 7,
   mealsPerDay: 2,
@@ -296,43 +225,22 @@ let state = {
     fruits:     { [id]: { pct, prep } },
     extras:     { [id]: true }
   },
-  actualBatchWeight: null   // grams, user-provided after cooking
+  actualBatchWeight: null
 };
 ```
 
-State is saved on every change via `StorageAdapter.saveState(state)`.
+State is saved on every change via `saveState()` (wrapper in `state.js`).
+
+**State reassignment:** Use `replaceState(newState)` from `state.js` to fully
+replace the state object. Direct reassignment (`state = x`) only works within
+`state.js` due to ES module live binding rules.
 
 ---
 
 ## Ingredient Database
 
-`DB` is a constant at the top of the JS section containing five arrays:
+`DB` is exported from `src/db.js` containing five arrays:
 `proteins`, `carbs`, `vegetables`, `fruits`, `extras`.
-
-Each macro ingredient has:
-```javascript
-{
-  id,           // unique string e.g. 'p01'
-  name,         // display name
-  kcalPerG,     // kcal per gram AS SERVED (cooked/prepped)
-  r,            // purchaseRatio: purchase_weight / recipe_weight
-                //   > 1.0 = shrinks when cooked (buy more than you need)
-                //   < 1.0 = expands when cooked (buy less dry than you'll use)
-                //   = 1.0 = no change (raw veg, canned goods)
-  preps,        // array of prep method strings
-  warn,         // optional safety warning string
-  note          // optional informational note string
-}
-```
-
-Each extra has:
-```javascript
-{ id, name, amt, unit, imp, kcal, note }
-// amt: daily amount per dog
-// unit: 'g' or 'mL'
-// imp: imperial equivalent string e.g. '1 tsp'
-// kcal: kcal per dog per day
-```
 
 **Do not reorder or renumber ingredient IDs** — saved recipes reference them
 by ID. If adding new ingredients, append to the end of each array with the
@@ -347,7 +255,7 @@ RER = 70 × (weightKg ^ 0.75)
 MER = RER × lifeStage.factor
 ```
 
-Life stage factors are in the `LIFE_STAGE` constant. Key values:
+Life stage factors are in the `LIFE_STAGE` constant (`src/db.js`). Key values:
 - Spayed/Neutered: 1.6
 - Intact adult: 1.8
 - Late pregnancy: 3.0
@@ -359,19 +267,22 @@ Life stage factors are in the `LIFE_STAGE` constant. Key values:
 
 - **No external JS libraries** — vanilla JS only unless explicitly approved
 - **All storage through StorageAdapter** — never call localStorage directly
+  (except theme storage in `themes.js`)
+- **All StorageAdapter methods are async** — callers await reads, fire-and-forget writes
 - **Weights in grams internally** — convert for display using `fmtWeight(g)`
 - **Volumes in mL internally** — convert for display using `fmtVol(mL)`
 - **All panels are collapsible** via `togglePanel(hdr)` — Pets and Batch
   Settings open by default, all others closed
 - **Ingredient IDs are stable** — never change existing IDs, only append new ones
-- **FIRESTORE HOOK comments** mark every place a Firebase call replaces
-  a localStorage call — preserve this pattern for any new storage operations
+- **New onclick-callable functions** must be registered on `window.*` in `app.js`
+- **ES modules** — use `import`/`export`, no CommonJS, no bundler
 
 ---
 
 ## Known Issues / TODO
 
 - [ ] Chili Spice theme: confirm exact hex codes from Figma
-- [ ] Firebase Firestore integration (see Adding Firebase section above)
+- [ ] Replace Firebase config placeholders with real project values
 - [ ] URL-based recipe sharing (encode state as compressed URL param)
-- [ ] Consider splitting into multiple files if app grows significantly
+- [x] Firebase Firestore integration (dual-write + sync)
+- [x] Modularize into ES modules
