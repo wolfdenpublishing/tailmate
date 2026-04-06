@@ -18,6 +18,7 @@ import {
   copyShoppingList,
   saveRecipe, loadRecipe, deleteRecipe, loadRecipesList,
   resetIngredients, resetBatchSettings,
+  adjustPackageSize,
   applyStateToUI,
 } from './ui.js';
 
@@ -46,6 +47,7 @@ window.applyTheme      = applyTheme;
 window.toggleThemeDropdown = toggleThemeDropdown;
 window.resetIngredients   = resetIngredients;
 window.resetBatchSettings = resetBatchSettings;
+window.adjustPackageSize  = adjustPackageSize;
 
 // ── AUTH STATE LISTENER ──────────────────────────────────────
 /* global firebase */

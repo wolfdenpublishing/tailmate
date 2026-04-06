@@ -42,9 +42,129 @@ function showModal({title, message, confirm = false, confirmText = 'OK', cancelT
   });
 }
 
+// ── PACKAGE SIZE ADJUSTMENT MODAL ────────────────────────────
+export function adjustPackageSize(cat, ingId, ingName, currentPurchaseG) {
+  if (!_lastResults) return;
+  const d = _lastResults;
+  const CATS = ['proteins','fats','carbs','vegetables','fruits'];
+  const MACRO_KEYS = ['p','fa','c','v','f'];
+  const ci = CATS.indexOf(cat);
+  if (ci < 0) return;
+  const macroPct = (state.macros[MACRO_KEYS[ci]] || 0) / 100;
+  const ing = DB[cat].find(x => x.id === ingId);
+  if (!ing) return;
+  const currentPct = state.sel[cat][ingId]?.pct || 0;
+  const otherIngs = Object.entries(state.sel[cat]).filter(([id]) => id !== ingId);
+  const sumOtherPcts = otherIngs.reduce((s, [, v]) => s + (v.pct || 0), 0);
+
+  // Create overlay
+  let overlay = $('adjustOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'adjustOverlay';
+    overlay.className = 'adjust-overlay';
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = `<div class="adjust-dialog">
+    <h3>Adjust ${esc(ingName)}</h3>
+    <div class="adjust-current">Currently: ${fmtWeight(currentPurchaseG)}</div>
+    <div class="adjust-input-row">
+      <label>Target purchase amount:</label>
+      <input type="number" id="adjustTarget" min="0" step="1" placeholder="${Math.round(currentPurchaseG)}">
+      <span>grams</span>
+    </div>
+    <div class="adjust-oz-hint" id="adjustOzHint"></div>
+    <div class="adjust-preview" id="adjustPreview"></div>
+    <div class="adjust-actions">
+      <button class="btn btn-secondary" id="adjustCancel">Cancel</button>
+      <button class="btn btn-primary" id="adjustApply" disabled>Apply &amp; Recalculate</button>
+    </div>
+  </div>`;
+  overlay.classList.add('open');
+
+  const input = $('adjustTarget');
+  const preview = $('adjustPreview');
+  const ozHint = $('adjustOzHint');
+  const applyBtn = $('adjustApply');
+
+  const updatePreview = () => {
+    const targetG = +input.value;
+    if (!targetG || targetG <= 0) {
+      preview.innerHTML = '';
+      ozHint.textContent = '';
+      applyBtn.disabled = true;
+      return;
+    }
+    ozHint.textContent = `= ${(targetG / 28.3495).toFixed(1)} oz`;
+    // Calculate new percentage
+    const newPct = (targetG / (d.estimatedBatchWeight * macroPct * ing.r)) * 100;
+    if (newPct > 100) {
+      preview.innerHTML = `<span class="adjust-err">Target exceeds total category weight (max ${fmtWeight(d.estimatedBatchWeight * macroPct * ing.r * 1)})</span>`;
+      applyBtn.disabled = true;
+      return;
+    }
+    if (newPct < 1) {
+      preview.innerHTML = `<span class="adjust-err">Target too small (would be ${newPct.toFixed(1)}%)</span>`;
+      applyBtn.disabled = true;
+      return;
+    }
+    const remaining = 100 - newPct;
+    let lines = `<strong>${esc(ingName)}</strong>: ${currentPct}% → <strong>${Math.round(newPct)}%</strong>`;
+    if (otherIngs.length > 0 && sumOtherPcts > 0) {
+      otherIngs.forEach(([otherId, otherSel]) => {
+        const otherIng = DB[cat].find(x => x.id === otherId);
+        if (!otherIng) return;
+        const otherNewPct = (otherSel.pct || 0) * (remaining / sumOtherPcts);
+        lines += `<br>${esc(otherIng.name)}: ${otherSel.pct}% → <strong>${Math.round(otherNewPct)}%</strong>`;
+      });
+    } else if (otherIngs.length === 0) {
+      // Only ingredient in category
+    } else {
+      preview.innerHTML = `<span class="adjust-err">Cannot redistribute — other ingredients are at 0%</span>`;
+      applyBtn.disabled = true;
+      return;
+    }
+    preview.innerHTML = lines;
+    applyBtn.disabled = false;
+  };
+
+  input.oninput = updatePreview;
+
+  const close = () => { overlay.classList.remove('open'); document.removeEventListener('keydown', keyHandler); };
+  const keyHandler = (e) => {
+    if (e.key === 'Escape') close();
+    if (e.key === 'Enter' && !applyBtn.disabled) doApply();
+  };
+  document.addEventListener('keydown', keyHandler);
+  overlay.onclick = (e) => { if (e.target === overlay) close(); };
+  $('adjustCancel').onclick = close;
+
+  const doApply = () => {
+    const targetG = +input.value;
+    if (!targetG || targetG <= 0) return;
+    const newPct = (targetG / (d.estimatedBatchWeight * macroPct * ing.r)) * 100;
+    if (newPct > 100 || newPct < 1) return;
+    const remaining = 100 - newPct;
+    // Update the target ingredient
+    state.sel[cat][ingId].pct = Math.round(newPct);
+    // Redistribute other ingredients proportionally
+    if (otherIngs.length > 0 && sumOtherPcts > 0) {
+      otherIngs.forEach(([otherId, otherSel]) => {
+        state.sel[cat][otherId].pct = Math.round(otherSel.pct * (remaining / sumOtherPcts));
+      });
+    }
+    saveState();
+    renderIngredients(cat);
+    close();
+    calculate();
+  };
+  applyBtn.onclick = doApply;
+  input.focus();
+}
+
 // ── PETS ──────────────────────────────────────────────────────
 export function addPet() {
-  state.pets.push({id: nextPetId(), name:'', breed:'', status:'Spayed Female', age:'', weight:'', wunit:'lb'});
+  state.pets.push({id: nextPetId(), name:'', breed:'', status:'Spayed Female', age:'', weight:'', wunit:'lb', balanceitG:''});
   saveState(); renderPets();
 }
 
@@ -98,6 +218,10 @@ export function renderPets() {
           </div>
         </div>
       </div>
+      <div class="field"><label>BalanceIT (g/day)</label>
+        <input type="number" value="${esc(p.balanceitG || '')}" placeholder="e.g. 5.3" step="0.01" min="0" oninput="updatePet(${p.id},'balanceitG',this.value)" style="width:120px">
+        <div style="font-size:.72rem;color:var(--muted);margin-top:2px">~5 g/day typical. Get exact amount from balanceit.com</div>
+      </div>
       <div class="kcal-badge" id="kcal-${p.id}">${kcalText}</div>
       ${LIFE_STAGE[p.status]?.note ? `<div class="ing-warn" style="margin-top:6px">⚠ ${esc(LIFE_STAGE[p.status].note)}</div>` : ''}
     </div>`;
@@ -146,7 +270,7 @@ const CAT_HDR_MAP = {
 };
 
 export function renderIngredients(cat) {
-  const items = DB[cat];
+  const items = [...DB[cat]].sort((a, b) => a.name.localeCompare(b.name));
   const sel = state.sel[cat];
   const listEl = $(CAT_MAP[cat]);
   listEl.innerHTML = items.map(ing => {
@@ -219,7 +343,7 @@ export function updateIngPrep(cat, id, val) {
 // ── EXTRAS ────────────────────────────────────────────────────
 export function renderExtras() {
   const el = $('extrasList');
-  el.innerHTML = DB.extras.map(ex => {
+  el.innerHTML = [...DB.extras].sort((a, b) => a.name.localeCompare(b.name)).map(ex => {
     const sel = !!state.sel.extras[ex.id];
     return `<div class="extra-card${sel?' selected':''}" onclick="toggleExtra('${ex.id}')">
       <input type="checkbox" ${sel?'checked':''} onclick="toggleExtra('${ex.id}');event.stopPropagation()">
@@ -298,7 +422,7 @@ export async function calculate() {
       const ing = DB[cat].find(x => x.id === id);
       if (!ing) return;
       const recipeG = estimatedBatchWeight * macroPct * (s.pct/100);
-      ingResults.push({cat, catLabel, name:ing.name, prep:s.prep, recipeG, purchaseG: recipeG * ing.r, purchaseRatio: ing.r});
+      ingResults.push({id, cat, catLabel, name:ing.name, prep:s.prep, recipeG, purchaseG: recipeG * ing.r, purchaseRatio: ing.r});
     });
   });
 
@@ -414,12 +538,32 @@ function renderResults(d) {
     </div>`;
   }
 
-  // BalanceIT callout
-  html += `<div class="balanceit">
-    <h4>💊 BalanceIT Supplement</h4>
-    <p>This recipe requires a nutritional supplement to be complete. Visit <a href="https://www.balanceit.com" target="_blank">balanceit.com</a> → <em>Recipe Builder</em> to calculate the exact amount based on your ingredients.<br><br>
-    Your batch kcal total: <span class="kcal-highlight">${Math.round(d.totalBatchKcal).toLocaleString()} kcal</span> — have this ready when using their calculator.</p>
-  </div>`;
+  // BalanceIT supplement section
+  const allPetsHaveSupp = d.petData.length > 0 && d.petData.every(p => p.balanceitG && +p.balanceitG > 0);
+  const totalSuppDaily = d.petData.reduce((s, p) => s + (+p.balanceitG || 0), 0);
+  const totalSuppBatch = totalSuppDaily * state.batchDays;
+  const suppClass = allPetsHaveSupp ? 'balanceit confirmed' : 'balanceit';
+
+  html += `<div class="${suppClass}">
+    <h4>💊 BalanceIT Supplement</h4>`;
+  if (allPetsHaveSupp) {
+    html += `<table class="supp-table">
+      <tbody>
+        ${d.petData.map(p => `<tr>
+          <td class="supp-label">${esc(p.name || 'Pet')}</td>
+          <td>${(+p.balanceitG).toFixed(2)} g/day</td>
+          <td>${(+p.balanceitG * state.batchDays).toFixed(2)} g for ${state.batchDays} day(s)</td>
+        </tr>`).join('')}
+        <tr><td class="supp-total" colspan="2">Total batch supplement</td><td class="supp-total">${fmtWeight(totalSuppBatch)}</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:8px">Batch kcal: <span class="kcal-highlight">${Math.round(d.totalBatchKcal).toLocaleString()} kcal</span> · <a href="https://www.balanceit.com" target="_blank">balanceit.com</a></p>`;
+  } else {
+    html += `<p>This recipe requires a nutritional supplement to be complete. Visit <a href="https://www.balanceit.com" target="_blank">balanceit.com</a> → <em>Recipe Builder</em> to calculate the exact amount based on your ingredients.<br><br>
+    Your batch kcal total: <span class="kcal-highlight">${Math.round(d.totalBatchKcal).toLocaleString()} kcal</span> — have this ready when using their calculator.<br><br>
+    <strong>Set per-pet supplement amounts in the pet cards above</strong> to see batch totals here.</p>`;
+  }
+  html += `</div>`;
 
   body.innerHTML = html;
 
@@ -444,7 +588,7 @@ function renderResults(d) {
             <div class="shop-item-prep">${esc(r.prep)}</div>
           </div>
           <div>
-            <div class="shop-item-qty">${fmtWeight(r.purchaseG)}</div>
+            <div class="shop-item-qty shop-qty-link" onclick="event.stopPropagation();adjustPackageSize('${r.cat}','${r.id}','${esc(r.name).replace(/'/g,"\\'")}',${r.purchaseG})">${fmtWeight(r.purchaseG)}</div>
             <div style="font-size:.72rem;color:var(--muted);text-align:right">${r.purchaseRatio < 1 ? 'dry / uncooked' : r.purchaseRatio > 1.05 ? 'raw purchase qty' : 'as used'}</div>
           </div>
         </div>`).join('')}
@@ -456,6 +600,14 @@ function renderResults(d) {
         <div class="shop-item-name" style="flex:1">${esc(ex.name)}</div>
         <div class="shop-item-qty">${fmtAmt(ex.totalAmt, ex.unit)}</div>
       </div>`).join('')}
+    </div>` : ''}
+    ${allPetsHaveSupp ? `<div class="shop-cat">
+      <div class="shop-cat-title">Supplement</div>
+      <div class="shop-item">
+        <input type="checkbox">
+        <div class="shop-item-name" style="flex:1">BalanceIT</div>
+        <div class="shop-item-qty">${fmtWeight(totalSuppBatch)}</div>
+      </div>
     </div>` : ''}`;
   }
 
@@ -497,7 +649,15 @@ export function copyShoppingList() {
     lines.push('');
   }
   lines.push('── SUPPLEMENT ──');
-  lines.push(`☐ BalanceIT (calculate at balanceit.com)`);
+  const totalSuppCopy = d.petData.reduce((s, p) => s + (+p.balanceitG || 0), 0) * state.batchDays;
+  if (totalSuppCopy > 0) {
+    lines.push(`☐ BalanceIT — ${fmtWeight(totalSuppCopy)}`);
+    d.petData.forEach(p => {
+      if (+p.balanceitG > 0) lines.push(`  ${p.name || 'Pet'}: ${(+p.balanceitG).toFixed(2)} g/day`);
+    });
+  } else {
+    lines.push(`☐ BalanceIT (calculate at balanceit.com)`);
+  }
   lines.push(`  Total batch kcal: ${Math.round(d.totalBatchKcal).toLocaleString()}`);
   navigator.clipboard.writeText(lines.join('\n')).then(() => {
     const btn = document.querySelector('[onclick="copyShoppingList()"]');

@@ -110,6 +110,7 @@ export const DB = {
     {id:'f16',name:'Cranberries (plain, raw)',kcalPerG:0.46,r:1.00,preps:['Raw'],warn:'Very tart — mix small amounts with other fruit.'},
     {id:'f17',name:'Plum (no pit)',kcalPerG:0.46,r:1.15,preps:['Raw'],warn:'⚠ Remove pit entirely — toxic. Flesh only.'},
     {id:'f18',name:'Apricot (no pit, leaves, or stem)',kcalPerG:0.48,r:1.25,preps:['Raw'],warn:'⚠ Pit, leaves, and stem are cyanogenic — flesh only.'},
+    {id:'f19',name:'Pineapple (canned in juice, drained)',kcalPerG:0.60,r:1.00,preps:['Ready to use'],note:'Drain juice. No added sugar or syrup.'},
   ],
   extras: [
     {id:'e06',name:'Plain Kefir (full fat, no sweetener)',amt:15,unit:'g',imp:'1 tbsp',kcal:9,note:'Probiotic support. Introduce slowly.'},

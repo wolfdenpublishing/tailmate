@@ -54,7 +54,7 @@ themes.js (imports storage.js) ─────┘
 
 Since ES module exports are not globals, all functions referenced by `onclick`
 attributes in HTML templates are registered on `window.*` in `app.js`. There are
-18 such registrations. When adding new onclick-callable functions, add a
+21 such registrations. When adding new onclick-callable functions, add a
 `window.functionName = functionName` line in `app.js`.
 
 ---
@@ -213,7 +213,7 @@ Defined in `src/state.js`:
 ```javascript
 export let state = {
   pets: [
-    { id, name, breed, status, age, weight, wunit }
+    { id, name, breed, status, age, weight, wunit, balanceitG }
   ],
   batchDays: 7,
   mealsPerDay: 2,
@@ -292,3 +292,5 @@ Life stage factors are in the `LIFE_STAGE` constant (`src/db.js`). Key values:
 - [x] Firebase Firestore integration (dual-write + sync)
 - [x] Modularize into ES modules
 - [x] Add fats/oils as a proper macro category (moved from extras)
+- [x] Package size adjustment (click shopping qty to target a package size)
+- [x] BalanceIT supplement tracking (per-pet g/day in pet card, batch totals in results)
