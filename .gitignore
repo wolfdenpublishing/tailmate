@@ -1,0 +1,34 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# Local dev / environment
+.env
+.env.local
+firebase-config.local.js
+
+# Firebase (when added)
+.firebase/
+firebase-debug.log
+firestore-debug.log
+
+# Node (if tooling is added later)
+node_modules/
+npm-debug.log*

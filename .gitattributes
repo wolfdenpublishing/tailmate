@@ -1,0 +1,45 @@
+# TailMate — Git Line Ending Configuration
+#
+# Enforces Unix (LF) line endings for all text files, regardless of whether
+# commits come from Windows (Git Bash), WSL2, or macOS/Linux.
+#
+# Git will normalize to LF on commit and never convert on checkout.
+# This ensures files accessed via WSL2 (/mnt/c/...) stay LF-clean.
+
+# Default: normalize all text files to LF on commit
+* text=auto eol=lf
+
+# Explicitly LF — source and config files
+*.html        text eol=lf
+*.css         text eol=lf
+*.js          text eol=lf
+*.ts          text eol=lf
+*.json        text eol=lf
+*.md          text eol=lf
+*.txt         text eol=lf
+*.yaml        text eol=lf
+*.yml         text eol=lf
+*.sh          text eol=lf
+*.env         text eol=lf
+
+# Git and editor config
+.gitattributes  text eol=lf
+.gitignore      text eol=lf
+.editorconfig   text eol=lf
+
+# License and docs
+LICENSE         text eol=lf
+CLAUDE.md       text eol=lf
+README.md       text eol=lf
+
+# True binaries — no line ending conversion ever
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.svg    binary
+*.woff   binary
+*.woff2  binary
+*.ttf    binary
+*.eot    binary
