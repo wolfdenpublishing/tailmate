@@ -143,6 +143,13 @@ input:focus,select:focus{outline:none;border-color:var(--accent2)}
 .adjust-dialog .adjust-preview{font-size:.83rem;line-height:1.5;margin-bottom:14px;min-height:40px}
 .adjust-dialog .adjust-preview .adjust-err{color:var(--danger,#c00);font-weight:600}
 .adjust-dialog .adjust-actions{display:flex;gap:8px;justify-content:flex-end}
+/* IMPORT MODAL */
+.import-dialog{max-height:80vh;overflow-y:auto}
+.import-section{margin-bottom:12px}
+.import-cat{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);padding-bottom:4px;border-bottom:1px solid var(--border);margin-bottom:6px;margin-top:10px}
+.import-item{font-size:.85rem;padding:2px 0;color:var(--text)}
+.import-pct{color:var(--accent);font-weight:700;margin-right:4px}
+.import-warn{font-size:.78rem;color:var(--amber);margin-bottom:10px}
 /* RECIPES PANEL */
 .recipe-save-row{display:flex;gap:10px;margin-bottom:16px}
 .recipe-save-row input{flex:1}
@@ -356,7 +363,7 @@ input:focus,select:focus{outline:none;border-color:var(--accent2)}
   <div class="panel result-hidden" id="resultsPanel">
     <div class="phdr open" onclick="togglePanel(this)">
       <h2>📊 Results</h2>
-      <span class="chevron">▼</span>
+      <div class="phdr-right"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();shareRecipe()" style="margin-right:6px">🔗 Share</button><span class="chevron">▼</span></div>
     </div>
     <div class="pbody" id="resultsBody"></div>
   </div>

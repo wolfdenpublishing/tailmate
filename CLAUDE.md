@@ -32,6 +32,7 @@ per-meal portions, and a BalanceIT supplement callout.
 │   ├── storage.js      ← StorageAdapter (async, dual-write localStorage + Firestore)
 │   ├── auth.js         ← Firebase Auth (Google sign-in), renderAuth
 │   ├── themes.js       ← 11 color themes, applyTheme, renderThemePicker
+│   ├── share.js        ← URL-based recipe sharing (encode/decode/import/export)
 │   └── ui.js           ← All rendering + event handlers (~500 lines)
 ├── CLAUDE.md           ← This file
 ├── README.md
@@ -48,13 +49,14 @@ storage.js ───┘           │         │
               ↑           │         │
 auth.js ──────┴───────────┘         │
 themes.js (imports storage.js) ─────┘
+share.js (imports db, state, storage, ui) ──┘
 ```
 
 ### onclick Handlers
 
 Since ES module exports are not globals, all functions referenced by `onclick`
 attributes in HTML templates are registered on `window.*` in `app.js`. There are
-21 such registrations. When adding new onclick-callable functions, add a
+23 such registrations. When adding new onclick-callable functions, add a
 `window.functionName = functionName` line in `app.js`.
 
 ---
@@ -270,7 +272,7 @@ Life stage factors are in the `LIFE_STAGE` constant (`src/db.js`). Key values:
 
 ## Key Conventions
 
-- **No external JS libraries** — vanilla JS only unless explicitly approved
+- **No external JS libraries without approval** — vanilla JS only unless explicitly approved
 - **All storage through StorageAdapter** — never call localStorage directly
   (except theme storage in `themes.js`)
 - **All StorageAdapter methods are async** — callers await reads, fire-and-forget writes
@@ -286,9 +288,9 @@ Life stage factors are in the `LIFE_STAGE` constant (`src/db.js`). Key values:
 
 ## Known Issues / TODO
 
-- [ ] Chili Spice theme: confirm exact hex codes from Figma
-- [ ] Replace Firebase config placeholders with real project values
-- [ ] URL-based recipe sharing (encode state as compressed URL param)
+- [x] Chili Spice theme: confirm exact hex codes from Figma
+- [x] Replace Firebase config placeholders with real project values
+- [x] URL-based recipe sharing (encode recipe as compressed URL param via `share.js`)
 - [x] Firebase Firestore integration (dual-write + sync)
 - [x] Modularize into ES modules
 - [x] Add fats/oils as a proper macro category (moved from extras)

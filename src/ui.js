@@ -7,7 +7,7 @@ import { StorageAdapter } from './storage.js';
 let _lastResults = null;
 
 // ── MODAL DIALOG ─────────────────────────────────────────────
-function showModal({title, message, confirm = false, confirmText = 'OK', cancelText = 'Cancel'}) {
+export function showModal({title, message, confirm = false, confirmText = 'OK', cancelText = 'Cancel'}) {
   return new Promise(resolve => {
     let overlay = $('modalOverlay');
     if (!overlay) {
@@ -732,6 +732,7 @@ export async function loadRecipesList() {
       </div>
       <div class="recipe-item-actions">
         <button class="btn btn-secondary btn-sm" onclick="loadRecipe('${r.id}')">Load</button>
+        <button class="btn btn-secondary btn-sm" onclick="shareRecipeById('${r.id}')" title="Share">🔗</button>
         <button class="btn btn-danger" onclick="deleteRecipe('${r.id}')">✕</button>
       </div>
     </div>`).join('')}</div>`;

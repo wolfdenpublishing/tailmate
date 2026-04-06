@@ -9,6 +9,7 @@ import { state, replaceState, setPetIdCounter, togglePanel } from './state.js';
 import { StorageAdapter } from './storage.js';
 import { Auth, handleAuth, renderAuth, setApplyStateToUI } from './auth.js';
 import { applyTheme, toggleThemeDropdown, renderThemePicker } from './themes.js';
+import { shareRecipe, shareRecipeById, checkSharedRecipeURL, setShareApplyStateToUI } from './share.js';
 import {
   addPet, removePet, updatePet,
   updateBatch, updateMacro,
@@ -22,8 +23,9 @@ import {
   applyStateToUI,
 } from './ui.js';
 
-// Wire up the circular dependency: auth.js needs applyStateToUI from ui.js
+// Wire up circular dependencies
 setApplyStateToUI(applyStateToUI);
+setShareApplyStateToUI(applyStateToUI);
 
 // ── REGISTER GLOBALS (for onclick handlers in HTML templates) ──
 window.togglePanel     = togglePanel;
@@ -48,6 +50,8 @@ window.toggleThemeDropdown = toggleThemeDropdown;
 window.resetIngredients   = resetIngredients;
 window.resetBatchSettings = resetBatchSettings;
 window.adjustPackageSize  = adjustPackageSize;
+window.shareRecipe        = shareRecipe;
+window.shareRecipeById    = shareRecipeById;
 
 // ── AUTH STATE LISTENER ──────────────────────────────────────
 /* global firebase */
@@ -95,4 +99,5 @@ firebase.auth().onAuthStateChanged(async (user) => {
   await renderThemePicker();
   applyStateToUI();
   renderAuth();
+  await checkSharedRecipeURL();
 })();
